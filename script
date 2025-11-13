@@ -1,29 +1,95 @@
+import ctypes
+import time
 import os
 
-try:
-    import pyautogui
-except:
-    os.system("pip install pyautogui")
-    import pyautogui
+# --- 1. 30 Sekunden warten ---
+time.sleep(30)
 
-from time import sleep
+# --- 2. Screenshot mit Windows-API aufnehmen ---
+# Speicherort
+image_path = os.path.join(os.getcwd(), "screenshot.bmp")
 
-from PIL import Image
-import ctypes
-
-
-# Edit this time as you want...
-sleep(30) 
-screenshot = pyautogui.screenshot()
-screenshot.save("screenshot.png")
-
-img = Image.open('screenshot.png')
-
-# Resize the screenshot as the desktop resolution
+# Screenshot als BMP speichern
+ctypes.windll.user32.SystemParametersInfoW
 user32 = ctypes.windll.user32
-screensize = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
-img = img.resize(screensize)
+gdi32 = ctypes.windll.gdi32
 
-# Set the new wallpaper
-image_path = os.path.abspath('screenshot.png')
+# Bildschirmdimensionen
+width = user32.GetSystemMetrics(0)
+height = user32.GetSystemMetrics(1)
+
+# Screenshot erstellen
+hwnd = user32.GetDesktopWindow()
+hwndDC = user32.GetWindowDC(hwnd)
+mfcDC = gdi32.CreateCompatibleDC(hwndDC)
+saveBitMap = gdi32.CreateCompatibleBitmap(hwndDC, width, height)
+gdi32.SelectObject(mfcDC, saveBitMap)
+gdi32.BitBlt(mfcDC, 0, 0, width, height, hwndDC, 0, 0, 0x00CC0020)
+
+# BMP speichern
+class BITMAPFILEHEADER(ctypes.Structure):
+    _fields_ = [
+        ('bfType', ctypes.c_uint16),
+        ('bfSize', ctypes.c_uint32),
+        ('bfReserved1', ctypes.c_uint16),
+        ('bfReserved2', ctypes.c_uint16),
+        ('bfOffBits', ctypes.c_uint32)
+    ]
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ('biSize', ctypes.c_uint32),
+        ('biWidth', ctypes.c_int32),
+        ('biHeight', ctypes.c_int32),
+        ('biPlanes', ctypes.c_uint16),
+        ('biBitCount', ctypes.c_uint16),
+        ('biCompression', ctypes.c_uint32),
+        ('biSizeImage', ctypes.c_uint32),
+        ('biXPelsPerMeter', ctypes.c_int32),
+        ('biYPelsPerMeter', ctypes.c_int32),
+        ('biClrUsed', ctypes.c_uint32),
+        ('biClrImportant', ctypes.c_uint32)
+    ]
+
+def save_bitmap(filename, bmp, width, height):
+    bmp_info = BITMAPINFOHEADER()
+    bmp_info.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    bmp_info.biWidth = width
+    bmp_info.biHeight = -height
+    bmp_info.biPlanes = 1
+    bmp_info.biBitCount = 24
+    bmp_info.biCompression = 0
+    bmp_info.biSizeImage = ((width * 3 + 3) & -4) * height
+
+    bf = BITMAPFILEHEADER()
+    bf.bfType = 0x4D42
+    bf.bfOffBits = ctypes.sizeof(BITMAPFILEHEADER) + bmp_info.biSize
+    bf.bfSize = bf.bfOffBits + bmp_info.biSizeImage
+
+    data = bytearray(bf.bfSize)
+
+    ctypes.memmove(ctypes.addressof(ctypes.c_char.from_buffer(data)),
+                   ctypes.byref(bf),
+                   ctypes.sizeof(bf))
+
+    ctypes.memmove(ctypes.addressof(ctypes.c_char.from_buffer(data, ctypes.sizeof(bf))),
+                   ctypes.byref(bmp_info),
+                   bmp_info.biSize)
+
+    gdi32.GetDIBits(hwndDC, bmp, 0, height,
+                    ctypes.addressof(ctypes.c_char.from_buffer(data, bf.bfOffBits)),
+                    ctypes.byref(bmp_info),
+                    0)
+
+    with open(filename, "wb") as f:
+        f.write(data)
+
+save_bitmap(image_path, saveBitMap, width, height)
+
+# Ressourcen freigeben
+gdi32.DeleteObject(saveBitMap)
+gdi32.DeleteDC(mfcDC)
+user32.ReleaseDC(hwnd, hwndDC)
+
+# --- 3. Wallpaper setzen ---
 ctypes.windll.user32.SystemParametersInfoW(20, 0, image_path, 0)
